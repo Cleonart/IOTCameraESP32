@@ -1,19 +1,27 @@
 #include "esp_camera.h"
 #include "SPI.h"
 #include "driver/rtc_io.h"
-#include "ESP32_MailClient.h"
-#include <FS.h>
-#include <SPIFFS.h>
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
+#include <HTTPClient.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <base64.h>
+
+bool isStreaming = true;
 
 /*
  * Network Instance
  * ----------------
  * SSID      : SET BY USER
  * Password  : SET BY USER
+ * MAC       : DEVICE ID (UNIQUE FOR EVERY DEVICCE)
  */
-const char* ssid = "OPPO A9 2020";
-const char* password = "12345678";
+const char* serverName = "https://api-central.ipxware.com/api/iot/camera/upload_2";
+const char* ssid = "Aquos";
+const char* password = "@ngonisomkg";
+const char* root_ca = "-----BEGIN CERTIFICATE-----\nMIIFSTCCBDGgAwIBAgISA2KchTPm8S/zLzdYj2Z1sE+5MA0GCSqGSIb3DQEBCwUA\nMDMxCzAJBgNVBAYTAlVTMRYwFAYDVQQKEw1MZXQncyBFbmNyeXB0MQwwCgYDVQQD\nEwNSMTEwHhcNMjQwNjI5MTEwMDU4WhcNMjQwOTI3MTEwMDU3WjArMSkwJwYDVQQD\nEyBhcGktYmxlc3NlZGNhZmVyZXN0by5pcHh3YXJlLmNvbTCCASIwDQYJKoZIhvcN\nAQEBBQADggEPADCCAQoCggEBAL0MGvB6/tc7uHxq6JzAbm+6mHQEpyNp8dcs1RbQ\n7Ki25hA9rI0rh0PTipJOZHQ05+JBsdKKCQLp8kxiLM+c/MJ1NDX36RFF54d8lvR6\nQx8p4ThljUkVOsCimJor5O+Mwt0MWVfMqQpmyoCBmuWRcitQRx/A2AxGdIqRoe0+\nVF44Bq6BFjBR0tb+STQAUZghs4i/XKNdIS+RU5nxybsh03lnQB2K8j+CtIABAf3w\nfFDUqKL5/X3DXsavQa77J1BuYAJfDGFZ+zqw1inUihlV6kW8reZ1ue5wpGSB2HTK\npZA3aH3W38ElF3iln36sLB9GOukq+MnSHZNFcOxal7LpPe8CAwEAAaOCAl0wggJZ\nMA4GA1UdDwEB/wQEAwIFoDAdBgNVHSUEFjAUBggrBgEFBQcDAQYIKwYBBQUHAwIw\nDAYDVR0TAQH/BAIwADAdBgNVHQ4EFgQUlcSGwKLPkPSpnWNr39bqIwcf0EkwHwYD\nVR0jBBgwFoAUxc9GpOr0w8B6bJXELbBeki8m47kwVwYIKwYBBQUHAQEESzBJMCIG\nCCsGAQUFBzABhhZodHRwOi8vcjExLm8ubGVuY3Iub3JnMCMGCCsGAQUFBzAChhdo\ndHRwOi8vcjExLmkubGVuY3Iub3JnLzBkBgNVHREEXTBbgiBhcGktYmxlc3NlZGNh\nZmVyZXN0by5pcHh3YXJlLmNvbYIXYXBpLWNlbnRyYWwuaXB4d2FyZS5jb22CHmFw\naS1yaXZhbGR5dGVoYW1lbi5pcHh3YXJlLmNvbTATBgNVHSAEDDAKMAgGBmeBDAEC\nATCCAQQGCisGAQQB1nkCBAIEgfUEgfIA8AB3AD8XS0/XIkdYlB1lHIS+DRLtkDd/\nH4Vq68G/KIXs+GRuAAABkGPeuLgAAAQDAEgwRgIhAN09rh5OlJP9io1Zq4Cno51/\nCx4l0iN1Cj5k6FfRdT0sAiEAw5dMBDEDA18P5Zpb67KPabaRYYj5DaH4NpXFPme1\nw+cAdQDuzdBk1dsazsVct520zROiModGfLzs3sNRSFlGcR+1mwAAAZBj3rjHAAAE\nAwBGMEQCIAGAthmgLQGTQ5mqWAIM+FoL0o7n9RlT7krF5tyGWzsGAiBFwFKOAbcC\n9SntuIk9SgWfggZFVt20xnjeBscJ1bXK9TANBgkqhkiG9w0BAQsFAAOCAQEAfu/g\nQcOaLPfvhNgBS3YSQJXaQejMbQqBqiaykO8afl3C3gorTpRvtQOnzFeqGWp1PPpk\nGxYHM81+tN/3kja0l277ZmVej4DOn60VXOdDMrJ8GfP2P120xnVmZkQJroaNXmbY\nzuQTi/vJ0OPPRWXIbNQXG0MoaTyogKBHVOI2AHdBi1Je+x8pPVdrGryKwaeSxEEE\nn6JuOga+VpjsNQLxdZ3BDSgi20NlIxpOzf7DhI0ADWwtqa0L4WeoIUn871oC+S2e\nU58Zw1KxGc/ZKmyM9z8xNsPeU1Jr2qQ0kOvc9j9Q00ywy5RpXqgRkGQ6VXlBBgyv\niPUEFVvY0ehHkfisFQ==\n-----END CERTIFICATE-----\n";
+String device_id;
 
 /*
  * PIN and General Instance
@@ -21,30 +29,14 @@ const char* password = "12345678";
  * PIR        : [13]
  * Flash LED  : [4]
  */
-#define pinPIR 13
+#define pinPIR 12
 #define pinFlashLed 4
-
-/*
- * Mail Server Instance
- * -----------------------------
- * Hostname : smtp.gmail.com
- * Port     : 465 (SSL)
- */
-#define emailSenderAccount "iotprojek23@gmail.com"
-#define emailSenderName "ESP32-CAM IoT Projek"
-#define emailSenderAppPassword "iyfp iwdl ajgc tkdr"
-#define smtpServer "smtp.gmail.com"
-#define smtpServerPort 465
-#define emailSubject "ESP32-CAM Photo Captured"
-#define emailRecipient "kristiandame@gmail.com"
-SMTPData smtpData;
 
 /*
  * Camera Instance
  * ---------------
  * Format : SPIFFS
  */
-#define FILE_PHOTO "/photo.jpg" 
 #define CAMERA_MODEL_AI_THINKER
 #if defined(CAMERA_MODEL_AI_THINKER)
 #define PWDN_GPIO_NUM 32
@@ -77,9 +69,9 @@ void setFlashLED(bool state) {
 }
 
 void LEDFlashBlink(int blink_count, int time_delay) {
-  setFlashLED(LOW)
+  setFlashLED(LOW);
   for (int i = 1; i <= blink_count * 2; i++) {
-    setFlashLED(!digitalRead(pinFlashLed))
+    setFlashLED(!digitalRead(pinFlashLed));
     delay(time_delay);
   }
 }
@@ -93,42 +85,20 @@ int readStatePIR() {
  * ------------------------------------
  */
 
-/* Subroutine for checking if SPIFFS is a valid SPIFFS */
-bool isValidSPIFFS(fs::FS& fs) {
-  File image = fs.open(FILE_PHOTO);
-  unsigned int imageSize = image.size();
-  Serial.printf("File name: %s | size: %d\n", FILE_PHOTO, imageSize);
-  image.close();
-  return imageSize > 100
-}
-
-/* Subroutine for formatting SPIFFS */
-void formatSPIFFS() {
-  bool formatted = SPIFFS.format();
-  Serial.println("\nFormat SPIFFS...");
-  if (formatted) {
-    Serial.println("\n\nSuccess formatting");
-    return
-  }
-  Serial.println("\n\nError formatting\n");
-}
-
 /* Function to capture the image from ESP32 */
 camera_fb_t* captureImage(){
   Serial.println("\nTaking a photo...\n");
   camera_fb_t* rawImage = NULL;
   do {
-    setFlashLED(true);
     rawImage = esp_camera_fb_get();
-    delay(2000);
+    delay(100);
     if (!rawImage) {
       Serial.println("Camera capture failed.");
       Serial.println("Carry out the re-capture process...");
     }
-    setFlashLED(false);
   } while (!rawImage);
   Serial.println("Take photo successfully.");
-  return rawImage
+  return rawImage;
 }
 
 void capturePhotoSaveSpiffs() {
@@ -137,79 +107,35 @@ void capturePhotoSaveSpiffs() {
   * - Capture the photo
   * - Format the photo as SPIFFS
   */
+  HTTPClient http;
+  WiFiClientSecure client;
   bool isValidSPIFFSFormat = false;
-  camera_fb_t* rawImage = captureImage();
+  setFlashLED(true);
+  camera_fb_t * rawImage = captureImage();
+  String imageData = base64::encode((uint8_t*)rawImage->buf, rawImage->len);
+  esp_camera_fb_return(rawImage);
 
-  do {
-    LEDFlashBlink(2, 250);
-
-    /* Photo file name */
-    Serial.printf("Picture file name: %s\n", FILE_PHOTO);
-    File file = SPIFFS.open(FILE_PHOTO, FILE_WRITE);
-    if (!file) {
-      Serial.println("Failed to open file in writing mode.");
-      formatSPIFFS();
-      continue;
+  if(WiFi.status() == WL_CONNECTED){
+    client.setInsecure(); //skip certificate validation
+    http.begin(serverName);
+    http.addHeader("Content-Type", "image/jpeg");
+    http.addHeader("device_id", device_id);
+    int httpResponseCode = http.POST(imageData);
+    if(httpResponseCode > 0){
+      Serial.println("SUCCESS");
+      String response = http.getString();
+      Serial.println(httpResponseCode);
+      Serial.println(response); 
+    } else{
+      Serial.println(httpResponseCode);
+      Serial.println("Error on sending POST: ");
+      Serial.println(http.errorToString(httpResponseCode));
     }
+  }
 
-    /* Begin the write to SPIFFS format */
-    file.write(rawImage->buf, rawImage->len);
-    Serial.print("The picture has been saved in ");
-    Serial.print(FILE_PHOTO);
-    Serial.print(" - Size: ");
-    Serial.print(file.size());
-    Serial.println(" bytes.");
-    file.close();
-
-    /* Check if file has been correctly saved in SPIFFS */
-    Serial.println("Checking if the picture file has been saved correctly in SPIFFS...");
-    isValidSPIFFSFormat = isValidSPIFFS(SPIFFS);
-    if (isValidSPIFFSFormat == 1) {
-      Serial.println("The picture file has been saved correctly in SPIFFS.");
-    } else {
-      Serial.println("The picture file is not saved correctly in SPIFFS.");
-      Serial.println("Carry out the re-save process...");
-      Serial.println();
-    }
-  } while (!isValidSPIFFSFormat);
-
-  // Clean and return the frame buffer back to the driver for reuse.
-  esp_camera_fb_return(rawImage); 
-  LEDFlashBlink(1, 1000);
+  http.end();
   Serial.println("\nCapture completed..\n");
-}
-
-// Callback function to get the Email sending status
-void sendCallback(SendStatus msg) {
-  Serial.println(msg.info());  //--> Print the current status
-}
-
-void sendPhoto() {
-  LEDFlashBlink(3, 250);
-  Serial.println("Sending email...");
-
-  // Set the SMTP Server Email host, port, account and password
-  smtpData.setLogin(
-    smtpServer,
-    smtpServerPort,
-    emailSenderAccount,
-    emailSenderAppPassword);
-
-  smtpData.setSender(emailSenderName, emailSenderAccount);
-  smtpData.setPriority("High");
-  smtpData.setSubject(emailSubject);
-  smtpData.setMessage("<h2>Photo captured with ESP32-CAM and attached in this email.</h2>", true);
-  smtpData.addRecipient(emailRecipient);
-  smtpData.addAttachFile(FILE_PHOTO, "image/jpg");
-  smtpData.setFileStorageType(MailClientStorageType::SPIFFS);
-  smtpData.setSendCallback(sendCallback);
-  if (!MailClient.sendMail(smtpData))
-    Serial.println("Error sending Email, " + MailClient.smtpErrorReason());
-
-  // Clear all data from Email object to free memory
-  smtpData.empty();
-  LEDFlashBlink(1, 1000);
-  delay(2000);
+  setFlashLED(false);
 }
 
 void setup() {
@@ -236,16 +162,6 @@ void setup() {
   Serial.println(WiFi.localIP());
   Serial.println();
 
-  /* Starting to mount SPIFFS */
-  Serial.println("Starting to mount SPIFFS...");
-  if (!SPIFFS.begin(true)) {
-    Serial.println("An Error has occurred while mounting SPIFFS");
-    Serial.println("ESP32 Cam Restart...");
-    ESP.restart();
-  } else {
-    Serial.println("SPIFFS mounted successfully");
-  }
-
   /* Camera configuration. */
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -269,24 +185,11 @@ void setup() {
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
 
-  if (psramFound()) {
-    config.frame_size = FRAMESIZE_UXGA;  //--> FRAMESIZE_ + QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA
-    /*
-     * From source https://randomnerdtutorials.com/esp32-cam-ov2640-camera-settings/ :
-     * - The image quality (jpeg_quality) can be a number between 0 and 63.
-     * - Higher numbers mean lower quality.
-     * - Lower numbers mean higher quality.
-     * - Very low numbers for image quality, specially at higher resolution can make the ESP32-CAM to crash or it may not be able to take the photos properly.
-     */
-    config.jpeg_quality = 20;
-    config.fb_count = 2;
-  } else {
-    config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 12;
-    config.fb_count = 1;
-  }
+  config.frame_size = FRAMESIZE_VGA;  //--> FRAMESIZE_ + QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA
+  config.jpeg_quality = 20;
+  config.fb_count = 2;
 
-  /* Initialize camera */
+  /* Initialize camera */ 
   Serial.println();
   Serial.println("Camera initialization...");
   esp_err_t err = esp_camera_init(&config);
@@ -298,6 +201,10 @@ void setup() {
   Serial.print("Camera initialization was successful.");
   Serial.println();
 
+  // Retrieve MAC Address
+  device_id = WiFi.macAddress();
+  Serial.println("Device ID : " + device_id);
+
   /* Loop to stabilize the PIR sensor at first power on.
      --------------------------------------------------
    * I created this loop because from the tests I did that when the PIR sensor starts to turn on,
@@ -306,7 +213,7 @@ void setup() {
    * From this source: https://lastminuteengineers.com/pir-sensor-arduino-tutorial/,
    * indeed the PIR sensor takes 30-60 seconds from the time it is turned on to be able to detect objects or movements properly.
    */
-  int cameraStabilizerCount = 3
+  int cameraStabilizerCount = 2;
   LEDFlashBlink(2, 250);
   Serial.println("Wait 60 seconds for the PIR sensor to stabilize.");
   Serial.println("Count down :");
@@ -315,8 +222,8 @@ void setup() {
     Serial.println(" second");
     delay(1000);
     if(cameraStabilizerCount > 0){
-      captureImage()
-      cameraStabilizerCount -= 1
+      captureImage();
+      cameraStabilizerCount -= 1;
     }
   }
 
@@ -325,9 +232,10 @@ void setup() {
 }
 
 void loop() {
-  bool isMovementDetected = readStatePIR() == 1 if (isMovementDetected) {
+  bool isMovementDetected = readStatePIR() == 1 || isStreaming;
+  if(isMovementDetected){
     capturePhotoSaveSpiffs();
-    sendPhoto();
+    delay(5000);
   }
   delay(1);
 }
